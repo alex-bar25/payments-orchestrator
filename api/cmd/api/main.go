@@ -57,10 +57,6 @@ func run(logger *slog.Logger) error {
 		writeJSON(w, http.StatusOK, `{"status":"ready"}`)
 	})
 
-	mux.HandleFunc("GET /api/v1/", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusNotImplemented, `{"error":{"code":"NOT_IMPLEMENTED","message":"endpoint not implemented yet"}}`)
-	})
-
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           mux,
@@ -85,9 +81,9 @@ func run(logger *slog.Logger) error {
 		return srv.Shutdown(shutdownCtx)
 	}
 }
-
 func writeJSON(w http.ResponseWriter, status int, body string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_, _ = w.Write([]byte(body))
 }
+
