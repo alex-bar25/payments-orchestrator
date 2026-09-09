@@ -1,0 +1,26 @@
+AGENTS.md
+.DS_Store
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Go
+/api/bin/
+*.out
+*.test
+
+# Node / Next.js
+node_modules/
+web/.next/
+web/out/
+web/build/
+*.tsbuildinfo
+
+# Editor / OS
+.idea/
+.vscode/
+*.log
+
+docs
