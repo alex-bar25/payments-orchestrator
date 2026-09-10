@@ -4,8 +4,6 @@ Go API and Next.js UI for a mock card lifecycle: create → authorize → captur
 
 No real cards. No Stripe. Amounts are integer minor units. One `status` field, append-only `payment_events`, Postgres-backed `Idempotency-Key`.
 
-![Payment Orchestrator UI](docs/images/ui.png)
-
 ## State
 
 ```text
