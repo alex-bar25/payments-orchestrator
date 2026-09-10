@@ -265,3 +265,91 @@ func TestAuthorizeRejectsCreateIdempotencyKey(t *testing.T) {
 		t.Fatalf("err = %v, want %v", err, ErrIdempotencyKeyReuse)
 	}
 }
+
+func TestCaptureSucceeds(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Capture(context.Background(), DemoMerchantID, p.ID, "cap_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusCaptured {
+		t.Fatalf("status = %s", got.Status)
+	}
+	if len(store.events) != 4 {
+		t.Fatalf("events = %d, want 4", len(store.events))
+	}
+}
+
+func TestCaptureRejectsUnauthorized(t *testing.T) {
+	svc := NewService(newMemStore())
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Capture(context.Background(), DemoMerchantID, p.ID, "cap_too_soon", "")
+	if !errors.Is(err, ErrInvalidPaymentState) {
+		t.Fatalf("err = %v, want %v", err, ErrInvalidPaymentState)
+	}
+}
+
+func TestCaptureReplayDoesNotRecapture(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Capture(context.Background(), DemoMerchantID, p.ID, "cap_1", ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Capture(context.Background(), DemoMerchantID, p.ID, "cap_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusCaptured {
+		t.Fatalf("status = %s", got.Status)
+	}
+	if len(store.events) != 4 {
+		t.Fatalf("replay emitted extra events: %d", len(store.events))
+	}
+}
+
+func TestCaptureDeclineLeavesAuthorized(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	in := validCreateInput()
+	in.Amount = 2
+	in.IdempotencyKey = "order_cap_fail"
+	p, err := svc.Create(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_cap_fail", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Capture(context.Background(), DemoMerchantID, p.ID, "cap_fail", "")
+	if !errors.Is(err, ErrCaptureDeclined) {
+		t.Fatalf("err = %v, want %v", err, ErrCaptureDeclined)
+	}
+	got, err := store.Get(context.Background(), p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusAuthorized {
+		t.Fatalf("status = %s, want authorized", got.Status)
+	}
+}

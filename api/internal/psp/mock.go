@@ -7,6 +7,7 @@ import (
 )
 
 const DeclineAmount int64 = 1
+const CaptureDeclineAmount int64 = 2
 
 type Result struct {
 	OK         bool
@@ -24,4 +25,11 @@ func (Mock) Authorize(_ context.Context, amount int64, _ string) (Result, error)
 		return Result{}, err
 	}
 	return Result{OK: true, ProviderID: "psp_" + id.String()}, nil
+}
+
+func (Mock) Capture(_ context.Context, amount int64, _ string) (Result, error) {
+	if amount == CaptureDeclineAmount {
+		return Result{}, nil
+	}
+	return Result{OK: true}, nil
 }

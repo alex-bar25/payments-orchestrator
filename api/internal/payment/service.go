@@ -18,6 +18,7 @@ const (
 	EventProcessing = "payment.processing"
 	EventAuthorized = "payment.authorized"
 	EventFailed     = "payment.failed"
+	EventCaptured   = "payment.captured"
 )
 
 var (
@@ -26,7 +27,8 @@ var (
 	ErrInvalidIdempotencyKey   = errors.New("idempotency key is required and must be at most 255 characters")
 	ErrIdempotencyKeyReuse     = errors.New("idempotency key reused with a different request")
 	ErrNotFound                = errors.New("payment not found")
-	ErrInvalidPaymentState     = errors.New("payment cannot be authorized from its current state")
+	ErrInvalidPaymentState     = errors.New("payment cannot be transitioned from its current state")
+	ErrCaptureDeclined         = errors.New("capture was declined by the provider")
 	errDuplicateIdempotencyKey = errors.New("duplicate idempotency key")
 	errStaleVersion            = errors.New("payment version conflict")
 )
