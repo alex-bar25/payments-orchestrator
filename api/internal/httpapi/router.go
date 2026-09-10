@@ -28,6 +28,7 @@ func New(logger *slog.Logger, gdb *gorm.DB, payments *payment.Service, store pay
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/payments", h.createPayment)
 		r.Get("/payments/{id}", h.getPayment)
+		r.Post("/payments/{id}/authorize", h.authorizePayment)
 	})
 	return r
 }

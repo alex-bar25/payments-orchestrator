@@ -19,6 +19,8 @@ func writeErr(w http.ResponseWriter, logger *slog.Logger, err error) {
 		writeAPIError(w, http.StatusBadRequest, "INVALID_IDEMPOTENCY_KEY", err.Error())
 	case errors.Is(err, payment.ErrIdempotencyKeyReuse):
 		writeAPIError(w, http.StatusConflict, "IDEMPOTENCY_KEY_REUSE", err.Error())
+	case errors.Is(err, payment.ErrInvalidPaymentState):
+		writeAPIError(w, http.StatusConflict, "INVALID_PAYMENT_STATE", err.Error())
 	case errors.Is(err, payment.ErrNotFound):
 		writeAPIError(w, http.StatusNotFound, "PAYMENT_NOT_FOUND", err.Error())
 	default:

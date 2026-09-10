@@ -7,13 +7,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexbarbatescu/payments-orchestrator/api/internal/psp"
 	"github.com/google/uuid"
 	"golang.org/x/text/currency"
 )
 
 const (
-	DemoMerchantID = "merch_demo"
-	EventCreated   = "payment.created"
+	DemoMerchantID  = "merch_demo"
+	EventCreated    = "payment.created"
+	EventProcessing = "payment.processing"
+	EventAuthorized = "payment.authorized"
+	EventFailed     = "payment.failed"
 )
 
 var (
@@ -22,18 +26,21 @@ var (
 	ErrInvalidIdempotencyKey   = errors.New("idempotency key is required and must be at most 255 characters")
 	ErrIdempotencyKeyReuse     = errors.New("idempotency key reused with a different request")
 	ErrNotFound                = errors.New("payment not found")
+	ErrInvalidPaymentState     = errors.New("payment cannot be authorized from its current state")
 	errDuplicateIdempotencyKey = errors.New("duplicate idempotency key")
+	errStaleVersion            = errors.New("payment version conflict")
 )
 
 type Payment struct {
-	ID         string    `json:"id" gorm:"primaryKey"`
-	MerchantID string    `json:"merchant_id"`
-	Amount     int64     `json:"amount"`
-	Currency   string    `json:"currency"`
-	Status     Status    `json:"status"`
-	Version    int       `json:"-"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID                string    `json:"id" gorm:"primaryKey"`
+	MerchantID        string    `json:"merchant_id"`
+	Amount            int64     `json:"amount"`
+	Currency          string    `json:"currency"`
+	Status            Status    `json:"status"`
+	Version           int       `json:"-"`
+	ProviderPaymentID *string   `json:"provider_payment_id,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 func (Payment) TableName() string { return "payments" }
@@ -70,10 +77,12 @@ type Store interface {
 	InsertCreated(ctx context.Context, p Payment, e Event, key IdempotencyKey) error
 	LookupIdempotency(ctx context.Context, merchantID, key string) (IdempotencyKey, error)
 	Get(ctx context.Context, id string) (Payment, error)
+	SaveTransition(ctx context.Context, p Payment, from Status, e Event, key *IdempotencyKey) error
 }
 
 type Service struct {
 	store Store
+	psp   psp.Mock
 }
 
 func NewService(store Store) *Service {
@@ -98,11 +107,6 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Payment, error) {
 	if err != nil {
 		return Payment{}, err
 	}
-	evtUUID, err := uuid.NewRandom()
-	if err != nil {
-		return Payment{}, err
-	}
-
 	p := Payment{
 		ID:         "pay_" + payUUID.String(),
 		MerchantID: in.MerchantID,
@@ -112,6 +116,10 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Payment, error) {
 		Version:    1,
 		CreatedAt:  now,
 		UpdatedAt:  now,
+	}
+	evtUUID, err := uuid.NewRandom()
+	if err != nil {
+		return Payment{}, err
 	}
 	e := Event{
 		ID:        "evt_" + evtUUID.String(),

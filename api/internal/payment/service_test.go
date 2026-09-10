@@ -47,6 +47,26 @@ func (m *memStore) Get(_ context.Context, id string) (Payment, error) {
 	return p, nil
 }
 
+func (m *memStore) SaveTransition(_ context.Context, p Payment, from Status, e Event, key *IdempotencyKey) error {
+	cur, ok := m.payments[p.ID]
+	if !ok {
+		return ErrNotFound
+	}
+	if cur.Status != from || cur.Version != p.Version-1 {
+		return errStaleVersion
+	}
+	if key != nil {
+		k := key.MerchantID + "\x00" + key.Key
+		if _, exists := m.keys[k]; exists {
+			return errDuplicateIdempotencyKey
+		}
+		m.keys[k] = *key
+	}
+	m.payments[p.ID] = p
+	m.events = append(m.events, e)
+	return nil
+}
+
 func validCreateInput() CreateInput {
 	return CreateInput{
 		MerchantID:     DemoMerchantID,
@@ -148,5 +168,100 @@ func TestCreateIdempotencyKeyLengthBoundary(t *testing.T) {
 	_, err := svc.Create(context.Background(), in)
 	if !errors.Is(err, ErrInvalidIdempotencyKey) {
 		t.Fatalf("256-char key: err = %v, want %v", err, ErrInvalidIdempotencyKey)
+	}
+}
+
+func TestAuthorizeSucceeds(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusAuthorized {
+		t.Fatalf("status = %s", got.Status)
+	}
+	if got.ProviderPaymentID == nil {
+		t.Fatal("missing provider payment id")
+	}
+	if len(store.events) != 3 {
+		t.Fatalf("events = %d, want created+processing+authorized", len(store.events))
+	}
+}
+
+func TestAuthorizeDeclinesOneCent(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	in := validCreateInput()
+	in.Amount = 1
+	in.IdempotencyKey = "order_decline"
+	p, err := svc.Create(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_decline", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusFailed {
+		t.Fatalf("status = %s", got.Status)
+	}
+	if got.ProviderPaymentID != nil {
+		t.Fatal("declined payment should not have a provider id")
+	}
+}
+
+func TestAuthorizeRejectsCaptured(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur := store.payments[p.ID]
+	cur.Status = StatusCaptured
+	store.payments[p.ID] = cur
+	_, err = svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_captured", "")
+	if !errors.Is(err, ErrInvalidPaymentState) {
+		t.Fatalf("err = %v, want %v", err, ErrInvalidPaymentState)
+	}
+}
+
+func TestAuthorizeReplayDoesNotReauth(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != second.ID || second.Status != StatusAuthorized {
+		t.Fatalf("replay status = %s id = %s", second.Status, second.ID)
+	}
+	if len(store.events) != 3 {
+		t.Fatalf("replay emitted extra events: %d", len(store.events))
+	}
+}
+
+func TestAuthorizeRejectsCreateIdempotencyKey(t *testing.T) {
+	svc := NewService(newMemStore())
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Authorize(context.Background(), DemoMerchantID, p.ID, "order_123", "")
+	if !errors.Is(err, ErrIdempotencyKeyReuse) {
+		t.Fatalf("err = %v, want %v", err, ErrIdempotencyKeyReuse)
 	}
 }

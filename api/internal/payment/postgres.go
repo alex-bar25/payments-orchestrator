@@ -50,6 +50,37 @@ func (s *PostgresStore) Get(ctx context.Context, id string) (Payment, error) {
 	return p, err
 }
 
+func (s *PostgresStore) SaveTransition(ctx context.Context, p Payment, from Status, e Event, key *IdempotencyKey) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		updates := map[string]any{
+			"status":     p.Status,
+			"version":    p.Version,
+			"updated_at": p.UpdatedAt,
+		}
+		if p.ProviderPaymentID != nil {
+			updates["provider_payment_id"] = *p.ProviderPaymentID
+		}
+		res := tx.Model(&Payment{}).Where("id = ? AND status = ? AND version = ?", p.ID, from, p.Version-1).Updates(updates)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return errStaleVersion
+		}
+		if err := tx.Create(&e).Error; err != nil {
+			return err
+		}
+		if key == nil {
+			return nil
+		}
+		err := tx.Create(key).Error
+		if isUniqueViolation(err, "idempotency_keys_pkey") {
+			return errDuplicateIdempotencyKey
+		}
+		return err
+	})
+}
+
 func isUniqueViolation(err error, constraint string) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == constraint
