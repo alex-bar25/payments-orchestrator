@@ -51,12 +51,12 @@ type Payment struct {
 func (Payment) TableName() string { return "payments" }
 
 type Event struct {
-	ID        string `gorm:"primaryKey"`
-	PaymentID string
-	Type      string
-	Metadata  string `gorm:"type:jsonb"`
-	RequestID string
-	CreatedAt time.Time
+	ID        string    `json:"id" gorm:"primaryKey"`
+	PaymentID string    `json:"payment_id"`
+	Type      string    `json:"type"`
+	Metadata  string    `json:"metadata" gorm:"type:jsonb"`
+	RequestID string    `json:"request_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 func (Event) TableName() string { return "payment_events" }
@@ -82,6 +82,7 @@ type Store interface {
 	InsertCreated(ctx context.Context, p Payment, e Event, key IdempotencyKey) error
 	LookupIdempotency(ctx context.Context, merchantID, key string) (IdempotencyKey, error)
 	Get(ctx context.Context, id string) (Payment, error)
+	ListEvents(ctx context.Context, paymentID string) ([]Event, error)
 	SaveTransition(ctx context.Context, p Payment, from Status, e Event, key *IdempotencyKey) error
 }
 

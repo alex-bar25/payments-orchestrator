@@ -50,6 +50,12 @@ func (s *PostgresStore) Get(ctx context.Context, id string) (Payment, error) {
 	return p, err
 }
 
+func (s *PostgresStore) ListEvents(ctx context.Context, paymentID string) ([]Event, error) {
+	var events []Event
+	err := s.db.WithContext(ctx).Where("payment_id = ?", paymentID).Order("created_at, id").Find(&events).Error
+	return events, err
+}
+
 func (s *PostgresStore) SaveTransition(ctx context.Context, p Payment, from Status, e Event, key *IdempotencyKey) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		updates := map[string]any{

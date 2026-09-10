@@ -47,6 +47,16 @@ func (m *memStore) Get(_ context.Context, id string) (Payment, error) {
 	return p, nil
 }
 
+func (m *memStore) ListEvents(_ context.Context, paymentID string) ([]Event, error) {
+	out := make([]Event, 0)
+	for _, e := range m.events {
+		if e.PaymentID == paymentID {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
 func (m *memStore) SaveTransition(_ context.Context, p Payment, from Status, e Event, key *IdempotencyKey) error {
 	cur, ok := m.payments[p.ID]
 	if !ok {
@@ -524,5 +534,42 @@ func TestCancelReplayDoesNotRecancel(t *testing.T) {
 	}
 	if len(store.events) != 4 {
 		t.Fatalf("replay emitted extra events: %d", len(store.events))
+	}
+}
+
+func TestListEventsIsolatesPayments(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	a, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := validCreateInput()
+	in.IdempotencyKey = "order_other"
+	b, err := svc.Create(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Authorize(context.Background(), DemoMerchantID, a.ID, "auth_a", ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.ListEvents(context.Background(), a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("events = %d, want 3", len(got))
+	}
+	for _, e := range got {
+		if e.PaymentID != a.ID {
+			t.Fatalf("leaked event for %s", e.PaymentID)
+		}
+	}
+	other, err := store.ListEvents(context.Background(), b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(other) != 1 {
+		t.Fatalf("other events = %d, want 1", len(other))
 	}
 }

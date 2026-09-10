@@ -43,6 +43,20 @@ func (h *Handler) getPayment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, p)
 }
 
+func (h *Handler) listPaymentEvents(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if _, err := h.store.Get(r.Context(), id); err != nil {
+		writeErr(w, h.logger, err)
+		return
+	}
+	events, err := h.store.ListEvents(r.Context(), id)
+	if err != nil {
+		writeErr(w, h.logger, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, events)
+}
+
 func (h *Handler) authorizePayment(w http.ResponseWriter, r *http.Request) {
 	p, err := h.payments.Authorize(
 		r.Context(),
