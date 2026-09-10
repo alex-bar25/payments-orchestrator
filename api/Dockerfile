@@ -14,4 +14,4 @@ COPY --from=build /out/api /app/api
 COPY --from=build /out/worker /app/worker
 USER nonroot:nonroot
 EXPOSE 8080
-ENTRYPOINT ["/app/api"]
+CMD ["/app/api"]

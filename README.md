@@ -4,6 +4,8 @@ Go API and Next.js UI for a mock card lifecycle: create → authorize → captur
 
 No real cards. No Stripe. Amounts are integer minor units. One `status` field, append-only `payment_events`, Postgres-backed `Idempotency-Key`.
 
+![Payment Orchestrator UI](ui.png)
+
 ## State
 
 ```text
@@ -36,6 +38,14 @@ make web-dev      # :3000, proxies /api/v1 to the Go API
 ```
 
 The UI defaults to `API_URL=http://127.0.0.1:8080`. Tests: `make api-test`.
+
+## Host
+
+Railway for the Go API. Vercel for the UI (`web/`). Neon for Postgres.
+
+API variables: `DATABASE_URL`, `RUN_WORKER=1`. Vercel variable: `API_URL` = the Railway public URL.
+
+Set a spending cap on Railway. Neon pooler URLs need `-pooler.` and `sslmode=require`. Do not put `DATABASE_URL` in git.
 
 ## API
 

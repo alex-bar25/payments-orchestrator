@@ -14,6 +14,8 @@ import (
 	"github.com/alexbarbatescu/payments-orchestrator/api/internal/db"
 	"github.com/alexbarbatescu/payments-orchestrator/api/internal/httpapi"
 	"github.com/alexbarbatescu/payments-orchestrator/api/internal/payment"
+	"github.com/alexbarbatescu/payments-orchestrator/api/internal/recon"
+	"github.com/alexbarbatescu/payments-orchestrator/api/internal/webhook"
 )
 
 func main() {
@@ -52,6 +54,15 @@ func run(logger *slog.Logger) error {
 
 	store := payment.NewPostgresStore(gdb)
 	svc := payment.NewService(store)
+	if os.Getenv("RUN_WORKER") == "1" {
+		go func() {
+			_ = webhook.New(gdb, cfg.WebhookURL, cfg.WebhookSecret, logger).Run(ctx)
+		}()
+		go func() {
+			_ = recon.New(gdb, logger).Run(ctx)
+		}()
+		logger.Info("worker loops started in api process")
+	}
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           httpapi.New(logger, gdb, svc, store),
