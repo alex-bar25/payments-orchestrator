@@ -52,6 +52,9 @@ func (s *Service) Capture(ctx context.Context, merchantID, paymentID, idempotenc
 	if !res.OK {
 		return Payment{}, ErrCaptureDeclined
 	}
+	if err := s.writeLedger(ctx, p.ID, p.ProviderPaymentID, StatusCaptured); err != nil {
+		return Payment{}, err
+	}
 
 	evtUUID, err := uuid.NewRandom()
 	if err != nil {

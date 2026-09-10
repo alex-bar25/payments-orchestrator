@@ -82,6 +82,25 @@ type ProviderEvent struct {
 
 func (ProviderEvent) TableName() string { return "provider_events" }
 
+type ProviderLedger struct {
+	PaymentID         string    `json:"payment_id" gorm:"primaryKey"`
+	ProviderPaymentID string    `json:"provider_payment_id,omitempty"`
+	Status            string    `json:"status"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+func (ProviderLedger) TableName() string { return "provider_ledger" }
+
+type Discrepancy struct {
+	ID             string    `json:"id" gorm:"primaryKey"`
+	PaymentID      string    `json:"payment_id"`
+	InternalStatus string    `json:"internal_status"`
+	ProviderStatus string    `json:"provider_status"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+func (Discrepancy) TableName() string { return "discrepancies" }
+
 type CreateInput struct {
 	MerchantID     string
 	Amount         int64
@@ -98,6 +117,7 @@ type Store interface {
 	SaveTransition(ctx context.Context, p Payment, from Status, e Event, key *IdempotencyKey, pe *ProviderEvent) error
 	LookupProviderEvent(ctx context.Context, id string) (ProviderEvent, error)
 	InsertProviderEvent(ctx context.Context, pe ProviderEvent) error
+	UpsertProviderLedger(ctx context.Context, row ProviderLedger) error
 }
 
 type Service struct {

@@ -52,6 +52,9 @@ func (s *Service) Refund(ctx context.Context, merchantID, paymentID, idempotency
 	if !res.OK {
 		return Payment{}, ErrRefundDeclined
 	}
+	if err := s.writeLedger(ctx, p.ID, p.ProviderPaymentID, StatusRefunded); err != nil {
+		return Payment{}, err
+	}
 
 	evtUUID, err := uuid.NewRandom()
 	if err != nil {

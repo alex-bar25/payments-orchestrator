@@ -13,6 +13,7 @@ type memStore struct {
 	keys           map[string]IdempotencyKey
 	webhooks       []WebhookEvent
 	providerEvents map[string]ProviderEvent
+	ledger         map[string]ProviderLedger
 }
 
 func newMemStore() *memStore {
@@ -20,6 +21,7 @@ func newMemStore() *memStore {
 		payments:       map[string]Payment{},
 		keys:           map[string]IdempotencyKey{},
 		providerEvents: map[string]ProviderEvent{},
+		ledger:         map[string]ProviderLedger{},
 	}
 }
 
@@ -102,6 +104,11 @@ func (m *memStore) InsertProviderEvent(_ context.Context, pe ProviderEvent) erro
 		return errDuplicateProviderEvent
 	}
 	m.providerEvents[pe.ID] = pe
+	return nil
+}
+
+func (m *memStore) UpsertProviderLedger(_ context.Context, row ProviderLedger) error {
+	m.ledger[row.PaymentID] = row
 	return nil
 }
 

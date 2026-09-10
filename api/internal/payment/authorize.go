@@ -111,6 +111,9 @@ func (s *Service) completeAuthorize(ctx context.Context, p Payment, requestID st
 		p.Status = StatusAuthorized
 		p.ProviderPaymentID = &res.ProviderID
 	}
+	if err := s.writeLedger(ctx, p.ID, p.ProviderPaymentID, p.Status); err != nil {
+		return Payment{}, err
+	}
 
 	evtUUID, err := uuid.NewRandom()
 	if err != nil {

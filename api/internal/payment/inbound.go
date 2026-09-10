@@ -88,6 +88,9 @@ func (s *Service) ApplyInbound(ctx context.Context, in InboundInput) (Payment, e
 	if p.Status != from {
 		return Payment{}, ErrInvalidPaymentState
 	}
+	if err := s.writeLedger(ctx, p.ID, p.ProviderPaymentID, to); err != nil {
+		return Payment{}, err
+	}
 
 	evtUUID, err := uuid.NewRandom()
 	if err != nil {

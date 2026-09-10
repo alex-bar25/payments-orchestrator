@@ -9,6 +9,7 @@ import (
 
 	"github.com/alexbarbatescu/payments-orchestrator/api/internal/config"
 	"github.com/alexbarbatescu/payments-orchestrator/api/internal/db"
+	"github.com/alexbarbatescu/payments-orchestrator/api/internal/recon"
 	"github.com/alexbarbatescu/payments-orchestrator/api/internal/webhook"
 )
 
@@ -45,6 +46,9 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	logger.Info("webhook worker started")
-	return webhook.New(gdb, cfg.WebhookURL, cfg.WebhookSecret, logger).Run(ctx)
+	logger.Info("worker started")
+	go func() {
+		_ = webhook.New(gdb, cfg.WebhookURL, cfg.WebhookSecret, logger).Run(ctx)
+	}()
+	return recon.New(gdb, logger).Run(ctx)
 }

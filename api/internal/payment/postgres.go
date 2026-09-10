@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type PostgresStore struct {
@@ -117,6 +118,13 @@ func (s *PostgresStore) InsertProviderEvent(ctx context.Context, pe ProviderEven
 		return errDuplicateProviderEvent
 	}
 	return err
+}
+
+func (s *PostgresStore) UpsertProviderLedger(ctx context.Context, row ProviderLedger) error {
+	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "payment_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"provider_payment_id", "status", "updated_at"}),
+	}).Create(&row).Error
 }
 
 func insertOutbox(tx *gorm.DB, p Payment, e Event) error {

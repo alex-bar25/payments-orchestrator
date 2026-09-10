@@ -34,6 +34,7 @@ func New(logger *slog.Logger, gdb *gorm.DB, payments *payment.Service, store pay
 		r.Post("/payments/{id}/refund", h.refundPayment)
 		r.Post("/payments/{id}/cancel", h.cancelPayment)
 		r.Post("/webhooks/mock", h.mockWebhook)
+		r.Get("/discrepancies", h.listDiscrepancies)
 	})
 	return r
 }
