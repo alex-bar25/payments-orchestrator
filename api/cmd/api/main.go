@@ -81,9 +81,9 @@ func run(logger *slog.Logger) error {
 		return srv.Shutdown(shutdownCtx)
 	}
 }
+
 func writeJSON(w http.ResponseWriter, status int, body string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_, _ = w.Write([]byte(body))
 }
-
