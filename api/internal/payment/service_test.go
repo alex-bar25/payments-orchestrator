@@ -457,3 +457,72 @@ func TestRefundDeclineLeavesCaptured(t *testing.T) {
 		t.Fatalf("status = %s, want captured", got.Status)
 	}
 }
+
+func TestCancelSucceeds(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Cancel(context.Background(), DemoMerchantID, p.ID, "can_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusCancelled {
+		t.Fatalf("status = %s", got.Status)
+	}
+	if len(store.events) != 4 {
+		t.Fatalf("events = %d, want 4", len(store.events))
+	}
+}
+
+func TestCancelRejectsCaptured(t *testing.T) {
+	svc := NewService(newMemStore())
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Capture(context.Background(), DemoMerchantID, p.ID, "cap_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Cancel(context.Background(), DemoMerchantID, p.ID, "can_too_late", "")
+	if !errors.Is(err, ErrInvalidPaymentState) {
+		t.Fatalf("err = %v, want %v", err, ErrInvalidPaymentState)
+	}
+}
+
+func TestCancelReplayDoesNotRecancel(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Cancel(context.Background(), DemoMerchantID, p.ID, "can_1", ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Cancel(context.Background(), DemoMerchantID, p.ID, "can_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusCancelled {
+		t.Fatalf("status = %s", got.Status)
+	}
+	if len(store.events) != 4 {
+		t.Fatalf("replay emitted extra events: %d", len(store.events))
+	}
+}

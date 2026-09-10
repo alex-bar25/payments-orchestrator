@@ -31,6 +31,7 @@ func New(logger *slog.Logger, gdb *gorm.DB, payments *payment.Service, store pay
 		r.Post("/payments/{id}/authorize", h.authorizePayment)
 		r.Post("/payments/{id}/capture", h.capturePayment)
 		r.Post("/payments/{id}/refund", h.refundPayment)
+		r.Post("/payments/{id}/cancel", h.cancelPayment)
 	})
 	return r
 }

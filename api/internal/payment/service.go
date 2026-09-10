@@ -20,6 +20,7 @@ const (
 	EventFailed     = "payment.failed"
 	EventCaptured   = "payment.captured"
 	EventRefunded   = "payment.refunded"
+	EventCancelled  = "payment.cancelled"
 )
 
 var (

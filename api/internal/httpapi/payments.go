@@ -87,3 +87,18 @@ func (h *Handler) refundPayment(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, p)
 }
+
+func (h *Handler) cancelPayment(w http.ResponseWriter, r *http.Request) {
+	p, err := h.payments.Cancel(
+		r.Context(),
+		payment.DemoMerchantID,
+		chi.URLParam(r, "id"),
+		r.Header.Get("Idempotency-Key"),
+		r.Header.Get("X-Request-Id"),
+	)
+	if err != nil {
+		writeErr(w, h.logger, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
