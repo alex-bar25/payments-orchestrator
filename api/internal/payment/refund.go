@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *Service) Capture(ctx context.Context, merchantID, paymentID, idempotencyKey, requestID string) (Payment, error) {
+func (s *Service) Refund(ctx context.Context, merchantID, paymentID, idempotencyKey, requestID string) (Payment, error) {
 	key := strings.TrimSpace(idempotencyKey)
 	if key == "" || len(key) > 255 {
 		return Payment{}, ErrInvalidIdempotencyKey
@@ -18,7 +18,7 @@ func (s *Service) Capture(ctx context.Context, merchantID, paymentID, idempotenc
 	fingerprint, err := json.Marshal(struct {
 		Op        string `json:"op"`
 		PaymentID string `json:"payment_id"`
-	}{"capture", paymentID})
+	}{"refund", paymentID})
 	if err != nil {
 		return Payment{}, err
 	}
@@ -38,19 +38,19 @@ func (s *Service) Capture(ctx context.Context, merchantID, paymentID, idempotenc
 	if err != nil {
 		return Payment{}, err
 	}
-	if p.Status == StatusCaptured {
+	if p.Status == StatusRefunded {
 		return p, nil
 	}
-	if p.Status != StatusAuthorized {
+	if p.Status != StatusCaptured {
 		return Payment{}, ErrInvalidPaymentState
 	}
 
-	res, err := s.psp.Capture(ctx, p.Amount)
+	res, err := s.psp.Refund(ctx, p.Amount)
 	if err != nil {
 		return Payment{}, err
 	}
 	if !res.OK {
-		return Payment{}, ErrCaptureDeclined
+		return Payment{}, ErrRefundDeclined
 	}
 
 	evtUUID, err := uuid.NewRandom()
@@ -58,13 +58,13 @@ func (s *Service) Capture(ctx context.Context, merchantID, paymentID, idempotenc
 		return Payment{}, err
 	}
 	from := p.Status
-	p.Status = StatusCaptured
+	p.Status = StatusRefunded
 	p.Version++
 	p.UpdatedAt = time.Now().UTC()
 	evt := Event{
 		ID:        "evt_" + evtUUID.String(),
 		PaymentID: p.ID,
-		Type:      EventCaptured,
+		Type:      EventRefunded,
 		Metadata:  "{}",
 		RequestID: requestID,
 		CreatedAt: p.UpdatedAt,

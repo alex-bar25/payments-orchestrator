@@ -19,6 +19,7 @@ const (
 	EventAuthorized = "payment.authorized"
 	EventFailed     = "payment.failed"
 	EventCaptured   = "payment.captured"
+	EventRefunded   = "payment.refunded"
 )
 
 var (
@@ -29,6 +30,7 @@ var (
 	ErrNotFound                = errors.New("payment not found")
 	ErrInvalidPaymentState     = errors.New("payment cannot be transitioned from its current state")
 	ErrCaptureDeclined         = errors.New("capture was declined by the provider")
+	ErrRefundDeclined          = errors.New("refund was declined by the provider")
 	errDuplicateIdempotencyKey = errors.New("duplicate idempotency key")
 	errStaleVersion            = errors.New("payment version conflict")
 )

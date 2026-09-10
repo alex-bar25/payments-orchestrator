@@ -353,3 +353,107 @@ func TestCaptureDeclineLeavesAuthorized(t *testing.T) {
 		t.Fatalf("status = %s, want authorized", got.Status)
 	}
 }
+
+func TestRefundSucceeds(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Capture(context.Background(), DemoMerchantID, p.ID, "cap_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Refund(context.Background(), DemoMerchantID, p.ID, "ref_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusRefunded {
+		t.Fatalf("status = %s", got.Status)
+	}
+	if len(store.events) != 5 {
+		t.Fatalf("events = %d, want 5", len(store.events))
+	}
+}
+
+func TestRefundRejectsUncaptured(t *testing.T) {
+	svc := NewService(newMemStore())
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Refund(context.Background(), DemoMerchantID, p.ID, "ref_too_soon", "")
+	if !errors.Is(err, ErrInvalidPaymentState) {
+		t.Fatalf("err = %v, want %v", err, ErrInvalidPaymentState)
+	}
+}
+
+func TestRefundReplayDoesNotRerefund(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Capture(context.Background(), DemoMerchantID, p.ID, "cap_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Refund(context.Background(), DemoMerchantID, p.ID, "ref_1", ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Refund(context.Background(), DemoMerchantID, p.ID, "ref_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusRefunded {
+		t.Fatalf("status = %s", got.Status)
+	}
+	if len(store.events) != 5 {
+		t.Fatalf("replay emitted extra events: %d", len(store.events))
+	}
+}
+
+func TestRefundDeclineLeavesCaptured(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	in := validCreateInput()
+	in.Amount = 3
+	in.IdempotencyKey = "order_ref_fail"
+	p, err := svc.Create(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_ref_fail", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Capture(context.Background(), DemoMerchantID, p.ID, "cap_ref_fail", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Refund(context.Background(), DemoMerchantID, p.ID, "ref_fail", "")
+	if !errors.Is(err, ErrRefundDeclined) {
+		t.Fatalf("err = %v, want %v", err, ErrRefundDeclined)
+	}
+	got, err := store.Get(context.Background(), p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusCaptured {
+		t.Fatalf("status = %s, want captured", got.Status)
+	}
+}

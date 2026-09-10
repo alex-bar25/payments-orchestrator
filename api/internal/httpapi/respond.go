@@ -23,6 +23,8 @@ func writeErr(w http.ResponseWriter, logger *slog.Logger, err error) {
 		writeAPIError(w, http.StatusConflict, "INVALID_PAYMENT_STATE", err.Error())
 	case errors.Is(err, payment.ErrCaptureDeclined):
 		writeAPIError(w, http.StatusConflict, "CAPTURE_DECLINED", err.Error())
+	case errors.Is(err, payment.ErrRefundDeclined):
+		writeAPIError(w, http.StatusConflict, "REFUND_DECLINED", err.Error())
 	case errors.Is(err, payment.ErrNotFound):
 		writeAPIError(w, http.StatusNotFound, "PAYMENT_NOT_FOUND", err.Error())
 	default:
