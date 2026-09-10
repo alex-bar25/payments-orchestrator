@@ -12,6 +12,8 @@ import (
 
 	"github.com/alexbarbatescu/payments-orchestrator/api/internal/config"
 	"github.com/alexbarbatescu/payments-orchestrator/api/internal/db"
+	"github.com/alexbarbatescu/payments-orchestrator/api/internal/httpapi"
+	"github.com/alexbarbatescu/payments-orchestrator/api/internal/payment"
 )
 
 func main() {
@@ -33,33 +35,26 @@ func run(logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := db.NewPool(ctx, cfg.DatabaseURL)
+	gdb, err := db.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
+	sqlDB, err := gdb.DB()
+	if err != nil {
+		return err
+	}
+	defer sqlDB.Close()
+
+	if err := db.Migrate(sqlDB); err != nil {
+		return err
+	}
 	logger.Info("connected to postgres")
 
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, `{"status":"ok"}`)
-	})
-
-	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, r *http.Request) {
-		pingCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-		defer cancel()
-		if err := pool.Ping(pingCtx); err != nil {
-			logger.Warn("readiness check failed", "err", err)
-			writeJSON(w, http.StatusServiceUnavailable, `{"status":"unavailable","dependency":"postgres"}`)
-			return
-		}
-		writeJSON(w, http.StatusOK, `{"status":"ready"}`)
-	})
-
+	store := payment.NewPostgresStore(gdb)
+	svc := payment.NewService(store)
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           mux,
+		Handler:           httpapi.New(logger, gdb, svc, store),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -80,10 +75,4 @@ func run(logger *slog.Logger) error {
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
 	}
-}
-
-func writeJSON(w http.ResponseWriter, status int, body string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_, _ = w.Write([]byte(body))
 }

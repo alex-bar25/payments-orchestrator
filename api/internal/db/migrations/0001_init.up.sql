@@ -10,7 +10,7 @@ CREATE TABLE payments (
     id TEXT PRIMARY KEY,
     merchant_id TEXT NOT NULL REFERENCES merchants (id),
     amount BIGINT NOT NULL CHECK (amount > 0),
-    currency CHAR(3) NOT NULL,
+    currency TEXT NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
     status TEXT NOT NULL CHECK (status IN (
         'requires_payment',
         'processing',

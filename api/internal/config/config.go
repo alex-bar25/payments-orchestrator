@@ -6,14 +6,18 @@ import (
 )
 
 type Config struct {
-	Port string
+	Port        string
 	DatabaseURL string
-	RedisURL string
+	RedisURL    string
 }
 
 func Load() (Config, error) {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
 	c := Config{
-		Port:        "8080",
+		Port:        port,
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		RedisURL:    os.Getenv("REDIS_URL"),
 	}
