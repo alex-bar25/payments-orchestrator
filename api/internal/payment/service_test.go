@@ -8,15 +8,18 @@ import (
 )
 
 type memStore struct {
-	payments map[string]Payment
-	events   []Event
-	keys     map[string]IdempotencyKey
+	payments       map[string]Payment
+	events         []Event
+	keys           map[string]IdempotencyKey
+	webhooks       []WebhookEvent
+	providerEvents map[string]ProviderEvent
 }
 
 func newMemStore() *memStore {
 	return &memStore{
-		payments: map[string]Payment{},
-		keys:     map[string]IdempotencyKey{},
+		payments:       map[string]Payment{},
+		keys:           map[string]IdempotencyKey{},
+		providerEvents: map[string]ProviderEvent{},
 	}
 }
 
@@ -27,6 +30,9 @@ func (m *memStore) InsertCreated(_ context.Context, p Payment, e Event, key Idem
 	}
 	m.payments[p.ID] = p
 	m.events = append(m.events, e)
+	if err := m.appendOutbox(p, e); err != nil {
+		return err
+	}
 	m.keys[k] = key
 	return nil
 }
@@ -57,7 +63,7 @@ func (m *memStore) ListEvents(_ context.Context, paymentID string) ([]Event, err
 	return out, nil
 }
 
-func (m *memStore) SaveTransition(_ context.Context, p Payment, from Status, e Event, key *IdempotencyKey) error {
+func (m *memStore) SaveTransition(_ context.Context, p Payment, from Status, e Event, key *IdempotencyKey, pe *ProviderEvent) error {
 	cur, ok := m.payments[p.ID]
 	if !ok {
 		return ErrNotFound
@@ -74,6 +80,37 @@ func (m *memStore) SaveTransition(_ context.Context, p Payment, from Status, e E
 	}
 	m.payments[p.ID] = p
 	m.events = append(m.events, e)
+	if pe != nil {
+		if _, exists := m.providerEvents[pe.ID]; exists {
+			return errDuplicateProviderEvent
+		}
+		m.providerEvents[pe.ID] = *pe
+	}
+	return m.appendOutbox(p, e)
+}
+
+func (m *memStore) LookupProviderEvent(_ context.Context, id string) (ProviderEvent, error) {
+	rec, ok := m.providerEvents[id]
+	if !ok {
+		return ProviderEvent{}, ErrNotFound
+	}
+	return rec, nil
+}
+
+func (m *memStore) InsertProviderEvent(_ context.Context, pe ProviderEvent) error {
+	if _, exists := m.providerEvents[pe.ID]; exists {
+		return errDuplicateProviderEvent
+	}
+	m.providerEvents[pe.ID] = pe
+	return nil
+}
+
+func (m *memStore) appendOutbox(p Payment, e Event) error {
+	wh, ok, err := newOutboxEvent(p, e)
+	if err != nil || !ok {
+		return err
+	}
+	m.webhooks = append(m.webhooks, wh)
 	return nil
 }
 
@@ -571,5 +608,162 @@ func TestListEventsIsolatesPayments(t *testing.T) {
 	}
 	if len(other) != 1 {
 		t.Fatalf("other events = %d, want 1", len(other))
+	}
+}
+
+func TestOutboxWritesVisibleEvents(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Create(context.Background(), validCreateInput()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.webhooks) != 1 {
+		t.Fatalf("create replay webhooks = %d, want 1", len(store.webhooks))
+	}
+	if _, err := svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.webhooks) != 2 {
+		t.Fatalf("webhooks = %d, want created+authorized", len(store.webhooks))
+	}
+	if store.webhooks[0].Type != EventCreated || store.webhooks[1].Type != EventAuthorized {
+		t.Fatalf("types = %s,%s", store.webhooks[0].Type, store.webhooks[1].Type)
+	}
+}
+
+func TestOutboxNotWrittenWhenCaptureDeclines(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	in := validCreateInput()
+	in.Amount = 2
+	in.IdempotencyKey = "order_cap_fail"
+	p, err := svc.Create(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_cap_fail", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := len(store.webhooks)
+	_, err = svc.Capture(context.Background(), DemoMerchantID, p.ID, "cap_fail", "")
+	if !errors.Is(err, ErrCaptureDeclined) {
+		t.Fatalf("err = %v, want %v", err, ErrCaptureDeclined)
+	}
+	if len(store.webhooks) != before {
+		t.Fatalf("declined capture enqueued a webhook")
+	}
+}
+
+func TestInboundCaptureSucceeds(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.ApplyInbound(context.Background(), InboundInput{
+		ID: "psp_evt_1", Type: EventCaptured, PaymentID: p.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusCaptured {
+		t.Fatalf("status = %s", got.Status)
+	}
+}
+
+func TestInboundReplayDoesNotReapply(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := InboundInput{ID: "psp_evt_1", Type: EventCaptured, PaymentID: p.ID}
+	if _, err := svc.ApplyInbound(context.Background(), in); err != nil {
+		t.Fatal(err)
+	}
+	n := len(store.events)
+	got, err := svc.ApplyInbound(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusCaptured {
+		t.Fatalf("status = %s", got.Status)
+	}
+	if len(store.events) != n {
+		t.Fatalf("replay emitted extra events: %d", len(store.events))
+	}
+}
+
+func TestInboundRejectsBodyChange(t *testing.T) {
+	svc := NewService(newMemStore())
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = svc.Authorize(context.Background(), DemoMerchantID, p.ID, "auth_1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ApplyInbound(context.Background(), InboundInput{
+		ID: "psp_evt_1", Type: EventCaptured, PaymentID: p.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.ApplyInbound(context.Background(), InboundInput{
+		ID: "psp_evt_1", Type: EventRefunded, PaymentID: p.ID,
+	})
+	if !errors.Is(err, ErrProviderEventReuse) {
+		t.Fatalf("err = %v, want %v", err, ErrProviderEventReuse)
+	}
+}
+
+func TestInboundAuthorizeCompletesProcessing(t *testing.T) {
+	store := newMemStore()
+	svc := NewService(store)
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur := store.payments[p.ID]
+	cur.Status = StatusProcessing
+	cur.Version++
+	store.payments[p.ID] = cur
+	got, err := svc.ApplyInbound(context.Background(), InboundInput{
+		ID: "psp_evt_auth", Type: EventAuthorized, PaymentID: p.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusAuthorized {
+		t.Fatalf("status = %s", got.Status)
+	}
+}
+
+func TestInboundRejectsIllegalState(t *testing.T) {
+	svc := NewService(newMemStore())
+	p, err := svc.Create(context.Background(), validCreateInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.ApplyInbound(context.Background(), InboundInput{
+		ID: "psp_evt_1", Type: EventCaptured, PaymentID: p.ID,
+	})
+	if !errors.Is(err, ErrInvalidPaymentState) {
+		t.Fatalf("err = %v, want %v", err, ErrInvalidPaymentState)
 	}
 }

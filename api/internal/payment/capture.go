@@ -75,7 +75,7 @@ func (s *Service) Capture(ctx context.Context, merchantID, paymentID, idempotenc
 		RequestHash: string(fingerprint),
 		PaymentID:   p.ID,
 	}
-	err = s.store.SaveTransition(ctx, p, from, evt, &ikey)
+	err = s.store.SaveTransition(ctx, p, from, evt, &ikey, nil)
 	if errors.Is(err, errDuplicateIdempotencyKey) || errors.Is(err, errStaleVersion) {
 		return s.store.Get(ctx, p.ID)
 	}

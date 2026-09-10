@@ -24,6 +24,9 @@ func (s *PostgresStore) InsertCreated(ctx context.Context, p Payment, e Event, k
 		if err := tx.Create(&e).Error; err != nil {
 			return err
 		}
+		if err := insertOutbox(tx, p, e); err != nil {
+			return err
+		}
 		err := tx.Create(&key).Error
 		if isUniqueViolation(err, "idempotency_keys_pkey") {
 			return errDuplicateIdempotencyKey
@@ -56,7 +59,7 @@ func (s *PostgresStore) ListEvents(ctx context.Context, paymentID string) ([]Eve
 	return events, err
 }
 
-func (s *PostgresStore) SaveTransition(ctx context.Context, p Payment, from Status, e Event, key *IdempotencyKey) error {
+func (s *PostgresStore) SaveTransition(ctx context.Context, p Payment, from Status, e Event, key *IdempotencyKey, pe *ProviderEvent) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		updates := map[string]any{
 			"status":     p.Status,
@@ -76,6 +79,18 @@ func (s *PostgresStore) SaveTransition(ctx context.Context, p Payment, from Stat
 		if err := tx.Create(&e).Error; err != nil {
 			return err
 		}
+		if err := insertOutbox(tx, p, e); err != nil {
+			return err
+		}
+		if pe != nil {
+			err := tx.Create(pe).Error
+			if isUniqueViolation(err, "provider_events_pkey") {
+				return errDuplicateProviderEvent
+			}
+			if err != nil {
+				return err
+			}
+		}
 		if key == nil {
 			return nil
 		}
@@ -85,6 +100,31 @@ func (s *PostgresStore) SaveTransition(ctx context.Context, p Payment, from Stat
 		}
 		return err
 	})
+}
+
+func (s *PostgresStore) LookupProviderEvent(ctx context.Context, id string) (ProviderEvent, error) {
+	var row ProviderEvent
+	err := s.db.WithContext(ctx).Where("id = ?", id).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return ProviderEvent{}, ErrNotFound
+	}
+	return row, err
+}
+
+func (s *PostgresStore) InsertProviderEvent(ctx context.Context, pe ProviderEvent) error {
+	err := s.db.WithContext(ctx).Create(&pe).Error
+	if isUniqueViolation(err, "provider_events_pkey") {
+		return errDuplicateProviderEvent
+	}
+	return err
+}
+
+func insertOutbox(tx *gorm.DB, p Payment, e Event) error {
+	wh, ok, err := newOutboxEvent(p, e)
+	if err != nil || !ok {
+		return err
+	}
+	return tx.Create(&wh).Error
 }
 
 func isUniqueViolation(err error, constraint string) bool {

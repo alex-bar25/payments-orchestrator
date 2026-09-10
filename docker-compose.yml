@@ -54,6 +54,8 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-payments}:${POSTGRES_PASSWORD:-payments}@postgres:5432/${POSTGRES_DB:-payments}?sslmode=disable
       REDIS_URL: redis://redis:6379/0
+      WEBHOOK_URL: ${WEBHOOK_URL:-}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
     depends_on:
       postgres:
         condition: service_healthy

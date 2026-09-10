@@ -32,7 +32,10 @@ var (
 	ErrInvalidPaymentState     = errors.New("payment cannot be transitioned from its current state")
 	ErrCaptureDeclined         = errors.New("capture was declined by the provider")
 	ErrRefundDeclined          = errors.New("refund was declined by the provider")
+	ErrInvalidProviderEvent    = errors.New("provider event is invalid")
+	ErrProviderEventReuse      = errors.New("provider event reused with a different payload")
 	errDuplicateIdempotencyKey = errors.New("duplicate idempotency key")
+	errDuplicateProviderEvent  = errors.New("duplicate provider event")
 	errStaleVersion            = errors.New("payment version conflict")
 )
 
@@ -70,6 +73,15 @@ type IdempotencyKey struct {
 
 func (IdempotencyKey) TableName() string { return "idempotency_keys" }
 
+type ProviderEvent struct {
+	ID          string `gorm:"primaryKey"`
+	RequestHash string
+	PaymentID   string
+	CreatedAt   time.Time
+}
+
+func (ProviderEvent) TableName() string { return "provider_events" }
+
 type CreateInput struct {
 	MerchantID     string
 	Amount         int64
@@ -83,7 +95,9 @@ type Store interface {
 	LookupIdempotency(ctx context.Context, merchantID, key string) (IdempotencyKey, error)
 	Get(ctx context.Context, id string) (Payment, error)
 	ListEvents(ctx context.Context, paymentID string) ([]Event, error)
-	SaveTransition(ctx context.Context, p Payment, from Status, e Event, key *IdempotencyKey) error
+	SaveTransition(ctx context.Context, p Payment, from Status, e Event, key *IdempotencyKey, pe *ProviderEvent) error
+	LookupProviderEvent(ctx context.Context, id string) (ProviderEvent, error)
+	InsertProviderEvent(ctx context.Context, pe ProviderEvent) error
 }
 
 type Service struct {

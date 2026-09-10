@@ -25,6 +25,10 @@ func writeErr(w http.ResponseWriter, logger *slog.Logger, err error) {
 		writeAPIError(w, http.StatusConflict, "CAPTURE_DECLINED", err.Error())
 	case errors.Is(err, payment.ErrRefundDeclined):
 		writeAPIError(w, http.StatusConflict, "REFUND_DECLINED", err.Error())
+	case errors.Is(err, payment.ErrInvalidProviderEvent):
+		writeAPIError(w, http.StatusBadRequest, "INVALID_PROVIDER_EVENT", err.Error())
+	case errors.Is(err, payment.ErrProviderEventReuse):
+		writeAPIError(w, http.StatusConflict, "PROVIDER_EVENT_REUSE", err.Error())
 	case errors.Is(err, payment.ErrNotFound):
 		writeAPIError(w, http.StatusNotFound, "PAYMENT_NOT_FOUND", err.Error())
 	default:

@@ -6,9 +6,11 @@ import (
 )
 
 type Config struct {
-	Port        string
-	DatabaseURL string
-	RedisURL    string
+	Port          string
+	DatabaseURL   string
+	RedisURL      string
+	WebhookURL    string
+	WebhookSecret string
 }
 
 func Load() (Config, error) {
@@ -17,9 +19,11 @@ func Load() (Config, error) {
 		port = "8080"
 	}
 	c := Config{
-		Port:        port,
-		DatabaseURL: os.Getenv("DATABASE_URL"),
-		RedisURL:    os.Getenv("REDIS_URL"),
+		Port:          port,
+		DatabaseURL:   os.Getenv("DATABASE_URL"),
+		RedisURL:      os.Getenv("REDIS_URL"),
+		WebhookURL:    os.Getenv("WEBHOOK_URL"),
+		WebhookSecret: os.Getenv("WEBHOOK_SECRET"),
 	}
 	if c.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")

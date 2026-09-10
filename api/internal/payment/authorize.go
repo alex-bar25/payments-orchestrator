@@ -64,7 +64,7 @@ func (s *Service) Authorize(ctx context.Context, merchantID, paymentID, idempote
 		RequestHash: string(fingerprint),
 		PaymentID:   p.ID,
 	}
-	err = s.store.SaveTransition(ctx, p, from, evt, &ikey)
+	err = s.store.SaveTransition(ctx, p, from, evt, &ikey, nil)
 	if errors.Is(err, errDuplicateIdempotencyKey) {
 		rec, err := s.store.LookupIdempotency(ctx, merchantID, key)
 		if err != nil {
@@ -127,7 +127,7 @@ func (s *Service) completeAuthorize(ctx context.Context, p Payment, requestID st
 		RequestID: requestID,
 		CreatedAt: p.UpdatedAt,
 	}
-	err = s.store.SaveTransition(ctx, p, from, evt, nil)
+	err = s.store.SaveTransition(ctx, p, from, evt, nil, nil)
 	if errors.Is(err, errStaleVersion) {
 		return s.store.Get(ctx, p.ID)
 	}
