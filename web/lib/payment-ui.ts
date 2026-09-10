@@ -21,6 +21,17 @@ export function formatTime(iso: string): string {
   return d.toISOString().replace("T", " ").replace("Z", " UTC");
 }
 
+export const ACTION_LABEL: Record<Action, string> = {
+  authorize: "Authorize",
+  capture: "Capture",
+  refund: "Refund",
+  cancel: "Cancel",
+};
+
+export function actionRoute(action: Action): string {
+  return `POST /api/v1/payments/:id/${action}`;
+}
+
 export function actionsFor(status: Status): Action[] {
   switch (status) {
     case "requires_payment":

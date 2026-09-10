@@ -35,6 +35,15 @@ export type Discrepancy = {
   created_at: string;
 };
 
+export type HttpExchange = {
+  method: string;
+  path: string;
+  status: number;
+  requestHeaders: Record<string, string>;
+  requestBody: unknown;
+  responseBody: unknown;
+};
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -46,26 +55,43 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(
-  method: string,
-  path: string,
-  body?: unknown,
-  idempotencyKey?: string,
-): Promise<T> {
+type RequestOpts = {
+  body?: unknown;
+  idempotencyKey?: string;
+  silent?: boolean;
+};
+
+let httpListener: ((exchange: HttpExchange) => void) | null = null;
+
+export function onHttp(listener: (exchange: HttpExchange) => void) {
+  httpListener = listener;
+  return () => {
+    if (httpListener === listener) {
+      httpListener = null;
+    }
+  };
+}
+
+async function request<T>(method: string, path: string, opts: RequestOpts = {}): Promise<T> {
   const headers = new Headers();
-  if (body !== undefined) {
+  const requestHeaders: Record<string, string> = {};
+  if (opts.body !== undefined) {
     headers.set("content-type", "application/json");
+    requestHeaders["Content-Type"] = "application/json";
   }
-  if (idempotencyKey) {
-    headers.set("Idempotency-Key", idempotencyKey);
+  if (opts.idempotencyKey) {
+    headers.set("Idempotency-Key", opts.idempotencyKey);
+    requestHeaders["Idempotency-Key"] = opts.idempotencyKey;
   }
   if (method !== "GET") {
-    headers.set("X-Request-Id", crypto.randomUUID());
+    const requestId = crypto.randomUUID();
+    headers.set("X-Request-Id", requestId);
+    requestHeaders["X-Request-Id"] = requestId;
   }
   const res = await fetch(path, {
     method,
     headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
   const text = await res.text();
   let data: unknown = null;
@@ -73,8 +99,29 @@ async function request<T>(
     try {
       data = JSON.parse(text);
     } catch {
+      data = text;
+      if (!opts.silent) {
+        httpListener?.({
+          method,
+          path,
+          status: res.status,
+          requestHeaders,
+          requestBody: opts.body ?? null,
+          responseBody: text.slice(0, 2000),
+        });
+      }
       throw new ApiError(res.status, "INVALID_JSON", text.slice(0, 200));
     }
+  }
+  if (!opts.silent) {
+    httpListener?.({
+      method,
+      path,
+      status: res.status,
+      requestHeaders,
+      requestBody: opts.body ?? null,
+      responseBody: data,
+    });
   }
   if (!res.ok) {
     const err = (data as { error?: { code?: string; message?: string } } | null)?.error;
@@ -84,24 +131,28 @@ async function request<T>(
 }
 
 export const api = {
-  health: () => request<{ status: string }>("GET", "/health"),
+  health: () => request<{ status: string }>("GET", "/health", { silent: true }),
   create: (amount: number, currency: string, key: string) =>
-    request<Payment>("POST", "/api/v1/payments", { amount, currency }, key),
-  get: (id: string) => request<Payment>("GET", `/api/v1/payments/${id}`),
-  events: (id: string) => request<PaymentEvent[]>("GET", `/api/v1/payments/${id}/events`),
+    request<Payment>("POST", "/api/v1/payments", {
+      body: { amount, currency },
+      idempotencyKey: key,
+    }),
+  get: (id: string, silent = false) =>
+    request<Payment>("GET", `/api/v1/payments/${id}`, { silent }),
+  events: (id: string, silent = false) =>
+    request<PaymentEvent[]>("GET", `/api/v1/payments/${id}/events`, { silent }),
   authorize: (id: string, key: string) =>
-    request<Payment>("POST", `/api/v1/payments/${id}/authorize`, undefined, key),
+    request<Payment>("POST", `/api/v1/payments/${id}/authorize`, { idempotencyKey: key }),
   capture: (id: string, key: string) =>
-    request<Payment>("POST", `/api/v1/payments/${id}/capture`, undefined, key),
+    request<Payment>("POST", `/api/v1/payments/${id}/capture`, { idempotencyKey: key }),
   refund: (id: string, key: string) =>
-    request<Payment>("POST", `/api/v1/payments/${id}/refund`, undefined, key),
+    request<Payment>("POST", `/api/v1/payments/${id}/refund`, { idempotencyKey: key }),
   cancel: (id: string, key: string) =>
-    request<Payment>("POST", `/api/v1/payments/${id}/cancel`, undefined, key),
-  discrepancies: () => request<Discrepancy[]>("GET", "/api/v1/discrepancies"),
+    request<Payment>("POST", `/api/v1/payments/${id}/cancel`, { idempotencyKey: key }),
+  discrepancies: (silent = false) =>
+    request<Discrepancy[]>("GET", "/api/v1/discrepancies", { silent }),
   inbound: (id: string, type: string, paymentId: string) =>
     request<Payment>("POST", "/api/v1/webhooks/mock", {
-      id,
-      type,
-      payment_id: paymentId,
+      body: { id, type, payment_id: paymentId },
     }),
 };

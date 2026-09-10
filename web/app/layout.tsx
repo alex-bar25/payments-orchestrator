@@ -15,7 +15,7 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Clearing desk",
+  title: "Payment Orchestrator",
   description: "Mock payment lifecycle: authorize, capture, refund, cancel.",
 };
 
